@@ -1,8 +1,8 @@
 // src/lib/auth.js (CORREGIDO)
 
 // --- CONFIGURACIÓN DE LA API DE SPOTIFY ---
-const CLIENT_ID = 'TU_CLIENT_ID_AQUI'; 
-const REDIRECT_URI = 'http://localhost:3000/auth/callback'; 
+const CLIENT_ID = 'adff33428193448e834ba2278b8d35f3'; 
+const REDIRECT_URI = 'http://127.0.0.1:3000/auth/callback'; 
 const AUTH_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const API_BASE_URL = 'https://api.spotify.com/v1';
