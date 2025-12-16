@@ -1,121 +1,55 @@
 // src/lib/auth.js
 
-// Variables de entorno necesarias (NEXT_PUBLIC_ son accesibles en el cliente)
+import { headers } from 'next/headers';
+
+// Se obtienen las variables de entorno públicas
 const CLIENT_ID = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID;
 const REDIRECT_URI = process.env.NEXT_PUBLIC_REDIRECT_URI;
-
-// Scopes necesarios para el proyecto (permisos que solicitamos)
-const scopes = [
-  "user-read-private", 
-  "user-read-email", 
-  "user-top-read",     
-  "playlist-modify-public", 
-  "playlist-modify-private"
-].join(",");
-
-// URLs fijas de Spotify
-const SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize"; // URL de Autorización
-// const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"; // No necesario aquí, solo en la ruta API
-
-
-// ------------------------------------------------------------------
-// 1. GENERACIÓN DE URL
-// ------------------------------------------------------------------
+// Scopes necesarios: Leer el perfil del usuario, listar los top tracks/artistas, crear playlists
+const SCOPES = 'user-read-private user-top-read playlist-modify-public playlist-modify-private'; 
 
 /**
- * Construye la URL completa a la que el usuario debe ser redirigido para el login.
- * @returns {string} La URL de autorización de Spotify.
+ * Genera una cadena aleatoria para usar como 'state' en OAuth
+ * @param {number} length Longitud de la cadena a generar
+ * @returns {string} Cadena aleatoria
  */
-export const getAuthorizeUrl = () => {
-  const url = new URL(SPOTIFY_AUTHORIZE_URL);
-  url.searchParams.append("response_type", "code");
-  url.searchParams.append("client_id", CLIENT_ID);
-  url.searchParams.append("scope", scopes);
-  url.searchParams.append("redirect_uri", REDIRECT_URI);
-  
-  return url.toString();
-};
-
-
-// ------------------------------------------------------------------
-// 2. GESTIÓN DE TOKENS (REFRESH)
-// ------------------------------------------------------------------
-
-/**
- * Llama a la ruta API del servidor para obtener un nuevo Access Token 
- * usando el Refresh Token guardado.
- * @param {string} refreshTokenValue El refresh token actual del usuario.
- * @returns {Promise<object>} Los nuevos datos del token.
- */
-export async function refreshToken(refreshTokenValue) {
-  // Llama a nuestra ruta API del servidor (/api/refresh-token)
-  const response = await fetch('/api/refresh-token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshTokenValue }),
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to refresh token. Reauthentication required.");
-  }
-
-  return response.json();
+export function generateRandomString(length) {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
 }
 
 /**
- * Intenta obtener un Access Token válido, refrescándolo si es necesario.
- * @returns {Promise<string|null>} El Access Token válido, o null si falla.
+ * Genera la URL de autorización para el login de Spotify.
+ * @returns {string} La URL de redirección a Spotify.
  */
-export async function getAccessToken() {
-  let accessToken = localStorage.getItem('access_token');
-  let expiresAt = localStorage.getItem('expires_in');
-  let refreshTokenValue = localStorage.getItem('refresh_token');
+export function getAuthorizationUrl() {
+    const state = generateRandomString(16);
+    // Obligatorio: guardar el 'state' en sessionStorage para validación CSRF en el callback
+    // Esto se haría en el componente de cliente que redirige al usuario. 
+    // Por ahora, solo retornamos la URL.
 
-  // Si no hay token de acceso, o ha expirado (usando un margen de 5 minutos: 300000 ms)
-  if (!accessToken || Date.now() >= (parseInt(expiresAt) - 300000)) {
-    if (!refreshTokenValue) {
-      // No hay tokens, debe redirigirse al login
-      return null; 
-    }
+    const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        redirect_uri: REDIRECT_URI,
+        state: state
+    });
 
-    try {
-      const newTokens = await refreshToken(refreshTokenValue);
-      
-      // 1. Guardar el nuevo Access Token y tiempo de expiración
-      localStorage.setItem('access_token', newTokens.access_token);
-      localStorage.setItem('expires_in', Date.now() + newTokens.expires_in * 1000);
-      
-      // 2. Opcionalmente, guardar nuevo refresh token si Spotify lo envía
-      if (newTokens.refresh_token) {
-        localStorage.setItem('refresh_token', newTokens.refresh_token);
-      }
-      
-      return newTokens.access_token;
-    } catch (error) {
-      console.error(error.message);
-      // Fallo crítico, forzar la redirección para que el usuario se logee de nuevo.
-      // Usamos window.location.href para forzar la redirección del navegador.
-      window.location.href = getAuthorizeUrl(); 
-      return null;
-    }
-  }
-
-  return accessToken;
+    return `https://accounts.spotify.com/authorize?${params.toString()}`;
 }
 
-
-// ------------------------------------------------------------------
-// 3. LOGOUT (Recomendado)
-// ------------------------------------------------------------------
-
 /**
- * Elimina todos los tokens de almacenamiento local y redirige al inicio.
+ * Función para obtener el token de localStorage
+ * @returns {string | null} Token de acceso
  */
-export const logout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('expires_in');
-    
-    // Redirigir a la página de inicio o login
-    window.location.href = '/'; 
-};
+export function getAccessToken() {
+    if (typeof window !== 'undefined') {
+        return localStorage.getItem('spotify_token');
+    }
+    return null;
+}

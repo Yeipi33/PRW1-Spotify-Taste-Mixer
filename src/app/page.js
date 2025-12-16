@@ -1,18 +1,42 @@
-import { getAuthorizeUrl } from '../lib/auth';
-import Link from 'next/link';
+// src/app/page.js
+'use client'; // Debe ser un Client Component para manejar la interacción de login
 
-export default function Home() {
-  const loginUrl = getAuthorizeUrl();
+import { getAuthorizationUrl, generateRandomString } from '../lib/auth';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
-      <h1 className="text-5xl font-bold mb-4">🎵 Spotify Taste Mixer</h1>
-      <p className="text-xl mb-8">Genera tus listas de reproducción personalizadas.</p>
-      
-      {/* Botón que redirige a Spotify para la autorización */}
-      <Link href={loginUrl} className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full transition duration-300 shadow-lg">
-          Iniciar Sesión con Spotify
-      </Link>
-    </div>
-  );
+export default function LoginPage() {
+    const router = useRouter();
+
+    useEffect(() => {
+        // Redirige al dashboard si ya hay un token (simple comprobación)
+        if (localStorage.getItem('spotify_token')) {
+            router.replace('/dashboard');
+        }
+    }, [router]);
+
+    const handleLogin = () => {
+        // 1. Generar y guardar el state para la validación CSRF
+        const state = generateRandomString(16);
+        sessionStorage.setItem('spotify_auth_state', state);
+
+        // 2. Generar la URL de autorización
+        const authUrl = getAuthorizationUrl();
+        
+        // 3. Redirigir al usuario a la página de login de Spotify
+        window.location.href = authUrl;
+    };
+
+    return (
+        <div style={{ padding: '40px', textAlign: 'center' }}>
+            <h1>Spotify Taste Mixer</h1>
+            <p>Genera listas de reproducción personalizadas de Spotify.</p>
+            <button 
+                onClick={handleLogin}
+                style={{ padding: '10px 20px', fontSize: '16px', cursor: 'pointer' }}
+            >
+                Iniciar Sesión con Spotify
+            </button>
+        </div>
+    );
 }
