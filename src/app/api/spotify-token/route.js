@@ -2,50 +2,49 @@
 
 import { NextResponse } from 'next/server';
 
-const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com//src/app/api/spotify-token/route";
+// Variables de entorno privadas (accesibles en el servidor)
+const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const REDIRECT_URI = process.env.NEXT_PUBLIC_REDIRECT_URI; // La versión pública también sirve aquí
 
 export async function POST(request) {
-  try {
-    const { code } = await request.json(); // Obtenemos el código enviado desde el frontend
+    // 1. Obtener el código de autorización del cuerpo de la solicitud (enviado desde el callback page)
+    const { code } = await request.json();
 
-    // Credenciales del servidor
-    const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID; // Sin NEXT_PUBLIC_
-    const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-    const REDIRECT_URI = process.env.NEXT_PUBLIC_REDIRECT_URI;
-
-    // Codificación base64 para la cabecera de autenticación
-    const authHeader = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
-    
-    // Cuerpo de la petición POST
-    const body = new URLSearchParams({
-      grant_type: 'authorization_code',
-      code: code,
-      redirect_uri: REDIRECT_URI,
-    });
-
-    const response = await fetch(SPOTIFY_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${authHeader}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: body.toString(),
-      cache: 'no-store'
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Error al obtener tokens de Spotify:', errorData);
-      return NextResponse.json({ error: 'Fallo en intercambio de código' }, { status: response.status });
+    if (!code) {
+        return NextResponse.json({ error: 'Falta el código de autorización' }, { status: 400 });
     }
 
-    const data = await response.json();
-    
-    // Devuelve los tokens (access_token, refresh_token, expires_in) al frontend
-    return NextResponse.json(data); 
+    // 2. Preparar los parámetros para la solicitud POST a Spotify
+    const authOptions = {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Basic ' + Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64'),
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+            code: code,
+            redirect_uri: REDIRECT_URI,
+            grant_type: 'authorization_code'
+        }).toString()
+    };
 
-  } catch (error) {
-    console.error('Error del servidor:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+    try {
+        // 3. Solicitar el token de acceso a Spotify
+        const response = await fetch('http://googleusercontent.com/api.spotify.com/api/token', authOptions);
+        
+        const data = await response.json();
+
+        if (!response.ok) {
+            console.error('Error de Spotify al obtener token:', data);
+            return NextResponse.json({ error: 'Fallo al obtener token de Spotify', details: data }, { status: response.status });
+        }
+
+        // 4. Devolver los tokens al cliente (callback page)
+        return NextResponse.json(data);
+
+    } catch (error) {
+        console.error('Error de red o servidor:', error);
+        return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
+    }
 }
