@@ -1,57 +1,137 @@
-// src/components/widgets/PopularityWidget.jsx
-
+// src/components/widgets/TrackWidget.jsx
 'use client';
+
 import { useState, useEffect } from 'react';
+import { spotifyRequest } from '../../lib/auth';
+import { useDebounce } from '../../lib/hooks/useDebounce';
+import Spinner from '../Spinner';
 
-/**
- * Widget para seleccionar el nivel mínimo de popularidad de las pistas.
- * @param {function} onUpdatePreferences Función para notificar al componente padre.
- */
-export default function PopularityWidget({ onUpdatePreferences }) {
-  // Inicialmente, solo definiremos la popularidad mínima, asumiendo max=100
-  const [minPopularity, setMinPopularity] = useState(50); 
-  const maxPopularity = 100; // Asumimos que el máximo siempre es 100
+const MAX_TRACKS = 5;
 
-  useEffect(() => {
-    // Parámetro enviado: target_popularity (para la búsqueda de recomendaciones)
-    // Usamos el target_popularity en lugar de min/max, ya que es el parámetro principal de Spotify.
-    onUpdatePreferences({ 
-      target_popularity: minPopularity,
-      min_popularity: minPopularity, // Enviamos el rango completo para la lógica de filtrado
-      max_popularity: maxPopularity
-    });
-  }, [minPopularity, onUpdatePreferences]);
+export default function TrackWidget({ onSelect, selectedItems }) {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [status, setStatus] = useState('Comienza a escribir para buscar canciones.');
 
-  const getLabel = (value) => {
-    if (value <= 30) return "Nicho/Underground"; // Underground 0-50
-    if (value <= 70) return "Popular"; // Popular 50-80
-    return "Mainstream/Global Hits"; // Mainstream 80-100
-  };
+    // Aplicar debounce al término de búsqueda
+    const debouncedSearchTerm = useDebounce(searchTerm, 500); 
 
-  return (
-    <div className="bg-gray-800 p-5 rounded-xl shadow-lg">
-      <h3 className="text-lg font-semibold mb-3 text-green-400">Popularidad de Pistas</h3>
-      
-      <div className="mb-4">
-        <label className="block text-white text-md mb-2">
-          Mínimo de Popularidad: **{minPopularity}**
-        </label>
-        <span className="text-sm text-gray-400 block mb-2">
-            {getLabel(minPopularity)}
-        </span>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="5"
-          value={minPopularity}
-          onChange={(e) => setMinPopularity(parseInt(e.target.value))}
-          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer range-lg accent-green-500"
-        />
-      </div>
-      <p className="text-xs text-gray-500">
-        Define la popularidad mínima (0=Nicho, 100=Global Hits).
-      </p>
-    </div>
-  );
+    // Efecto para buscar canciones
+    useEffect(() => {
+        const fetchTracks = async () => {
+            if (!debouncedSearchTerm.trim()) {
+                setSearchResults([]);
+                setStatus('Comienza a escribir para buscar canciones.');
+                return;
+            }
+
+            setIsLoading(true);
+            setStatus('Buscando...');
+            
+            try {
+                // Endpoint de búsqueda de Spotify (type=track)
+                const data = await spotifyRequest(`/search?q=${encodeURIComponent(debouncedSearchTerm)}&type=track&limit=8`);
+                
+                const tracks = data?.tracks?.items || [];
+                setSearchResults(tracks);
+
+                if (tracks.length === 0) {
+                    setStatus(`No se encontraron canciones para "${debouncedSearchTerm}".`);
+                } else {
+                    setStatus(`Mostrando ${tracks.length} resultados.`);
+                }
+
+            } catch (error) {
+                console.error('Error al buscar canciones:', error);
+                setStatus('Error al buscar. Por favor, inténtalo de nuevo.');
+                setSearchResults([]);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchTracks();
+    }, [debouncedSearchTerm]);
+
+    const toggleTrack = (track) => {
+        const isSelected = selectedItems.includes(track.id);
+
+        if (isSelected) {
+            onSelect(selectedItems.filter(id => id !== track.id));
+        } else if (selectedItems.length < MAX_TRACKS) {
+            onSelect([...selectedItems, track.id]);
+        }
+    };
+    
+    return (
+        <div>
+            <div className="mb-4">
+                <input
+                    type="text"
+                    placeholder="Buscar canción, título, artista..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-green-500 outline-none"
+                />
+            </div>
+
+            <p className="text-sm text-gray-400 mb-3">
+                Semillas de Canción Seleccionadas: {selectedItems.length} / {MAX_TRACKS}
+            </p>
+
+            <div className="max-h-80 overflow-y-auto pr-2">
+                {isLoading ? (
+                    <Spinner text="Buscando canciones..." />
+                ) : (
+                    <div>
+                        {searchResults.length > 0 ? (
+                            searchResults.map(track => {
+                                const isSelected = selectedItems.includes(track.id);
+                                const isDisabled = !isSelected && selectedItems.length >= MAX_TRACKS;
+                                
+                                const imageUrl = track.album.images.find(img => img.width > 64)?.url || '/placeholder-track.png';
+                                
+                                return (
+                                    <TrackResultItem 
+                                        key={track.id}
+                                        track={track}
+                                        imageUrl={imageUrl}
+                                        isSelected={isSelected}
+                                        isDisabled={isDisabled}
+                                        onClick={() => toggleTrack(track)}
+                                    />
+                                );
+                            })
+                        ) : (
+                            <p className="text-gray-500">{status}</p>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
+
+// Componente para renderizar cada canción en la lista de resultados
+const TrackResultItem = ({ track, imageUrl, isSelected, isDisabled, onClick }) => (
+    <div 
+        onClick={onClick}
+        className={`flex items-center p-2 mb-2 rounded-lg cursor-pointer transition-colors 
+                    ${isSelected ? 'bg-green-700 border border-green-500' : 'bg-gray-700 hover:bg-gray-600'}
+                    ${isDisabled && 'opacity-50 cursor-not-allowed'}`}
+    >
+        <img 
+            src={imageUrl} 
+            alt={track.name} 
+            className="w-12 h-12 object-cover mr-4" 
+        />
+        <div className="flex-grow min-w-0">
+            <p className="font-semibold text-white truncate">{track.name}</p>
+            <p className="text-sm text-gray-400 truncate">{track.artists.map(a => a.name).join(', ')}</p>
+        </div>
+        <div className={`flex-shrink-0 w-4 h-4 rounded-full border-2 
+                        ${isSelected ? 'bg-green-400 border-white' : 'border-gray-400'}`}>
+        </div>
+    </div>
+);

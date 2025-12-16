@@ -1,124 +1,139 @@
 // src/components/widgets/ArtistWidget.jsx
-
 'use client';
-import { useState, useEffect, useCallback } from 'react';
-import * as SpotifyAPI from '@/lib/spotify';
 
-const MAX_ARTISTS = 5; // Límite de selección
+import { useState, useEffect } from 'react';
+import { spotifyRequest } from '../../lib/auth';
+import { useDebounce } from '../../lib/hooks/useDebounce';
+import Spinner from '../Spinner';
 
-/**
- * Widget para buscar y seleccionar artistas (Máx 5).
- * Envía los IDs de los artistas seleccionados como 'seed_artists'.
- * @param {function} onUpdatePreferences Función para notificar al componente padre.
- */
-export default function ArtistWidget({ onUpdatePreferences }) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [selectedArtists, setSelectedArtists] = useState([]);
-  const [loading, setLoading] = useState(false);
+const MAX_ARTISTS = 5;
 
-  // 1. Notificar al Dashboard cuando cambian los artistas seleccionados
-  useEffect(() => {
-    // Parámetro enviado: Lista de IDs de artistas
-    const artistIds = selectedArtists.map(artist => artist.id);
-    onUpdatePreferences({ seed_artists: artistIds });
-  }, [selectedArtists, onUpdatePreferences]);
+export default function ArtistWidget({ onSelect, selectedItems }) {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [status, setStatus] = useState('Comienza a escribir para buscar artistas.');
+    
+    // Aplicar debounce al término de búsqueda
+    const debouncedSearchTerm = useDebounce(searchTerm, 500); 
 
+    // Efecto para buscar artistas
+    useEffect(() => {
+        const fetchArtists = async () => {
+            if (!debouncedSearchTerm.trim()) {
+                setSearchResults([]);
+                setStatus('Comienza a escribir para buscar artistas.');
+                return;
+            }
 
-  // 2. Función de búsqueda (Endpoint: /search?type=artist)
-  const fetchArtists = useCallback(async (query) => {
-    if (query.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const data = await searchSpotify(query, 'artist');
-      setSearchResults(data.artists.items);
-    } catch (e) {
-      console.error("Error buscando artistas:", e);
-      setSearchResults([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+            setIsLoading(true);
+            setStatus('Buscando...');
+            
+            try {
+                // Endpoint de búsqueda de Spotify (type=artist)
+                const data = await spotifyRequest(`/search?q=${encodeURIComponent(debouncedSearchTerm)}&type=artist&limit=8`);
+                
+                const artists = data?.artists?.items || [];
+                setSearchResults(artists);
 
-  // 3. Efecto para activar la búsqueda (Simulación de Debouncing)
-  useEffect(() => {
-    // Esperar 500ms después de escribir
-    const handler = setTimeout(() => {
-      fetchArtists(searchTerm);
-    }, 500); 
-    return () => clearTimeout(handler);
-  }, [searchTerm, fetchArtists]);
+                if (artists.length === 0) {
+                    setStatus(`No se encontraron resultados para "${debouncedSearchTerm}".`);
+                } else {
+                    setStatus(`Mostrando ${artists.length} resultados.`);
+                }
 
+            } catch (error) {
+                console.error('Error al buscar artistas:', error);
+                setStatus('Error al buscar. Por favor, inténtalo de nuevo.');
+                setSearchResults([]);
+            } finally {
+                setIsLoading(false);
+            }
+        };
 
-  // 4. Función para añadir/eliminar artistas
-  const toggleArtist = (artist) => {
-    setSelectedArtists(prev => {
-      if (prev.some(a => a.id === artist.id)) {
-        // Eliminar si ya está seleccionado
-        return prev.filter(a => a.id !== artist.id);
-      } else if (prev.length < MAX_ARTISTS) { // Límite de 5 artistas
-        // Añadir si hay espacio
-        return [...prev, artist];
-      }
-      return prev;
-    });
-    setSearchTerm('');
-    setSearchResults([]);
-  };
+        fetchArtists();
+    }, [debouncedSearchTerm]);
 
-  return (
-    <div className="bg-gray-800 p-5 rounded-xl shadow-lg">
-      <h3 className="text-lg font-semibold mb-3 text-green-400">Artistas Semilla (Máx {MAX_ARTISTS})</h3>
-      
-      {/* Artistas Seleccionados */}
-      <div className="flex flex-wrap gap-2 mb-3">
-        {selectedArtists.map(artist => (
-          <span
-            key={artist.id}
-            className="px-3 py-1 text-xs rounded-full bg-green-700 text-white flex items-center cursor-pointer"
-            onClick={() => toggleArtist(artist)}
-          >
-            {artist.name} &times;
-          </span>
-        ))}
-      </div>
+    const toggleArtist = (artist) => {
+        const isSelected = selectedItems.includes(artist.id);
 
-      {/* Input de Búsqueda */}
-      <input
-        type="text"
-        placeholder="Buscar artista..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full p-2 rounded-lg bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
-      />
+        if (isSelected) {
+            onSelect(selectedItems.filter(id => id !== artist.id));
+        } else if (selectedItems.length < MAX_ARTISTS) {
+            onSelect([...selectedItems, artist.id]);
+        }
+    };
+    
+    return (
+        <div>
+            <div className="mb-4">
+                <input
+                    type="text"
+                    placeholder="Buscar artista por nombre..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-green-500 outline-none"
+                />
+            </div>
 
-      {/* Resultados de Búsqueda */}
-      {loading && <p className="text-sm text-gray-500 mt-2">Buscando...</p>}
-      {!loading && searchTerm.length >= 2 && searchResults.length === 0 && (
-          <p className="text-sm text-gray-500 mt-2">No se encontraron resultados.</p>
-      )}
-      
-      <div className="mt-2 max-h-40 overflow-y-auto">
-        {searchResults.map(artist => (
-          <div
-            key={artist.id}
-            onClick={() => toggleArtist(artist)}
-            className={`flex items-center p-2 hover:bg-gray-700 cursor-pointer rounded-lg text-sm transition ${
-                selectedArtists.some(a => a.id === artist.id) ? 'bg-gray-600' : ''
-            }`}
-          >
-            <img 
-                src={artist.images[2]?.url || '/placeholder.png'} 
-                alt={artist.name} 
-                className="w-8 h-8 rounded-full mr-3 object-cover" 
-            />
-            {artist.name}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+            <p className="text-sm text-gray-400 mb-3">
+                Semillas de Artista Seleccionadas: {selectedItems.length} / {MAX_ARTISTS}
+            </p>
+
+            <div className="max-h-80 overflow-y-auto pr-2">
+                {isLoading ? (
+                    <Spinner text="Buscando artistas..." />
+                ) : (
+                    <div>
+                        {searchResults.length > 0 ? (
+                            searchResults.map(artist => {
+                                const isSelected = selectedItems.includes(artist.id);
+                                const isDisabled = !isSelected && selectedItems.length >= MAX_ARTISTS;
+                                
+                                const imageUrl = artist.images.find(img => img.width > 64)?.url || '/placeholder-artist.png';
+                                
+                                return (
+                                    <ArtistResultItem 
+                                        key={artist.id}
+                                        artist={artist}
+                                        imageUrl={imageUrl}
+                                        isSelected={isSelected}
+                                        isDisabled={isDisabled}
+                                        onClick={() => toggleArtist(artist)}
+                                    />
+                                );
+                            })
+                        ) : (
+                            <p className="text-gray-500">{status}</p>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
+
+// Componente para renderizar cada artista en la lista de resultados
+const ArtistResultItem = ({ artist, imageUrl, isSelected, isDisabled, onClick }) => (
+    <div 
+        onClick={onClick}
+        className={`flex items-center p-2 mb-2 rounded-lg cursor-pointer transition-colors 
+                    ${isSelected ? 'bg-green-700 border border-green-500' : 'bg-gray-700 hover:bg-gray-600'}
+                    ${isDisabled && 'opacity-50 cursor-not-allowed'}`}
+    >
+        <img 
+            src={imageUrl} 
+            alt={artist.name} 
+            className="w-12 h-12 rounded-full object-cover mr-4" 
+        />
+        <div className="flex-grow">
+            <p className="font-semibold text-white">{artist.name}</p>
+            <p className="text-sm text-gray-400">
+                {artist.genres.slice(0, 2).join(', ') || 'Artista sin género'}
+            </p>
+        </div>
+        <div className={`w-4 h-4 rounded-full border-2 
+                        ${isSelected ? 'bg-green-400 border-white' : 'border-gray-400'}`}>
+        </div>
+    </div>
+);
